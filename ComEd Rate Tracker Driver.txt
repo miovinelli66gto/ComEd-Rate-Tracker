@@ -1,0 +1,142 @@
+/**
+ *  ComEd Rate Tracker
+ *  Author: michael.iovinelli@gmail.com
+ *  Date: 2025-07-01
+ *
+ *     Date        	REV.        Who        		   Description
+ *    ===========	====	===========			=====================================================
+ *    2025-07-01	v1.0	miovinelli66gto		Initial implementation
+ * 
+ * * Permission is hereby granted, free of charge, to any person obtaining a copy of this
+ * software and associated documentation files (the "Software"), to deal in the Software
+ * without restriction, including without limitation the rights to use, copy, modify,
+ * merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to the following
+ * conditions: The above copyright notice and this permission notice shall be included
+ * in all copies or substantial portions of the Software.
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *  in compliance with the License. You may obtain a copy of the License at:
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *  for the specific language governing permissions and limitations under the License.
+ **/
+ 
+/* Static values from ComEd   {"millisUTC":"1725979200000","price":"1.3"}  */ 
+
+private COMED_CURRENTHOURAVERAGE_URL() {return "https://hourlypricing.comed.com/api?type=currenthouraverage"}
+private COMED_CURRENT5MinuteFeed_URL() {return "https://hourlypricing.comed.com/api?type=5minutefeed"}
+
+metadata {definition (name: "ComEd Rate Tracker", namespace: "miovinelli", author: "Michael Iovinelli")
+          {capability "Energy Meter"
+           capability "Refresh"
+           capability "Polling"
+
+           command "refresh"
+           command "poll"
+           command "setcurrentHourAverage", ["number"]
+           command "setcurrent5MinuteFeed", ["number"]
+           
+           attribute "currentTimeStamp", "string" // New attribute added
+           attribute "currentHourAverage", "string"
+           attribute "current5MinuteFeed", "string"
+           attribute "energyHourlyFeed", "number" // corrected attribute name to align with the capabilities
+           attribute "energy5MinuteFeed", "number" // corrected attribute name to align with the capabilities
+          }
+         }
+// Parse incoming device messages to generate events
+def parse(String description) {
+    def pair = description.split(":")
+    createEvent(name: pair[0].trim(), value: pair[1].trim(), unit: "¢ / kWh")
+    
+}
+
+// Set command changes Rate Valves for troubleshooting your rules. This preformed in the device that is created with this Driver.
+def setcurrentHourAverage(value) {
+    sendEvent(name: "energyHourlyFeed", value: value, unit: "¢ / kWh")
+}
+
+def setcurrent5MinuteFeed(value) {
+    sendEvent(name: "energy5MinuteFeed", value: value, unit: "¢ / kWh")
+}
+
+def getRate()  {def params = [uri: COMED_CURRENTHOURAVERAGE_URL(), contentType: 'application/json']
+			    def params5 = [uri: COMED_CURRENT5MinuteFeed_URL(), contentType: 'application/json']
+                  
+                 try {
+                        // Perform the HTTP GET request
+                        httpGet(params) { resp ->
+
+                                            // Log the millis
+                                            String timeStamp = resp.data[0]?.millisUTC // incoming data is a string value
+
+                                            // Covert String to a long number because can not covert a string into a DateTime Format
+                                            long timeStamplong = timeStamp as long
+                                            //log.debug "Raw Date and Time in Milliseconds: ${timeStamplong}"
+
+                                            //Converted timeStampLong to Date/Time Format
+                                            Date dateTime = new Date(timeStamplong) // can only use a long number to DateTime Format
+                                            def formattedDateTime = dateTime.format('MM/dd/yyyy h:mm a', location.timeZone)
+                                            log.debug "Date and Time: ${formattedDateTime}"
+            
+                                            // Log the rate
+                                            log.debug "Hourly Rate is ${resp.data[0]?.price}¢ / kWh"
+
+                                            sendEvent(name: "energyHourlyFeed", value: resp.data[0]?.price, unit: "¢ / kWh") // Added line to send energyHourlyFeed
+
+                                            sendEvent(name: "currentTimeStamp", value: formattedDateTime) // Added line to send currentTimeStamp
+                        
+                                          }
+
+                       httpGet(params5) { resp5 ->
+
+                                            // don't need to get the millis for 5 minute rate
+                           					/*// Log the millis
+                                            String timeStamp = resp5.data[0]?.millisUTC // incoming data is a string value
+
+                                            // Covert String to a long number because can not covert a string into a DateTime Format
+                                            long timeStamplong = timeStamp as long
+                                            //log.debug "Raw Date and Time in Milliseconds: ${timeStamplong}"
+
+                                            //Converted timeStampLong to Date/Time Format
+                                            Date dateTime = new Date(timeStamplong) // can only use a long number to DateTime Format
+                                            def formattedDateTime = dateTime.format('MM/dd/yyyy h:mm a', location.timeZone)
+                                            log.debug "Date and Time: ${formattedDateTime}"*/
+            
+                                            // Log the rate
+                                            log.debug "5 Minute Rate is ${resp5.data[0]?.price}¢ / kWh"
+
+                                            sendEvent(name: "energy5MinuteFeed", value: resp5.data[0]?.price, unit: "¢ / kWh") // Added line to send energy5MinuteFeed  
+                     					}
+                 }
+  		             catch (Exception e) {log.error "Something went wrong: $e"}
+              		
+               }  
+/* Handle commands */
+def poll() {
+    do_update()
+}
+
+def refresh() {
+    do_update()
+}
+
+// Run do_update every 5 minutes.  No reason to change to a quicker update rate ComEd only updates their data every 5 minutes. 
+def reschedule() {
+    runIn(300, do_update)
+}
+
+def do_update() {
+    def rate = getRate()
+    if (rate != null) { // Check if the rate is not null before sending it
+        setcurrentHourAverage(rate)
+        }
+    reschedule()
+}
+
+private def textVersion(){"v1.0.0"}
+
+private def textCopyright(){"Copyright © 2025 Michael Iovinelli <michael.iovinelli@gmail.com>"}

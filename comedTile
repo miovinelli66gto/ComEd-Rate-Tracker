@@ -1,0 +1,6 @@
+<table>
+<tr><th>Time Stamped</th><td><%currentTimeStamp%></td></tr>
+<tr><th>ComEd Hourly Rate is</th><td><%energyHourlyFeed%></td></tr>
+<tr><th>ComEd 5 Minute Rate is</th><td><%energy5MinuteFeed%></td></tr>
+</table>
+
